@@ -51,6 +51,27 @@ async def back_to_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await back_to_countries(update, context)
 
 
+async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle back to main menu"""
+    query = update.callback_query
+    await query.answer()
+    
+    logger.info(f"User {query.from_user.id} clicked back to menu")
+    
+    # Agar message already inline keyboard nahi hai, to naya message bhejo
+    try:
+        await query.edit_message_text(
+            "Main Menu:",
+            reply_markup=main_menu()
+        )
+    except:
+        # Agar edit fail ho (inline keyboard expected), to naya message bhejo
+        await query.message.reply_text(
+            "Main Menu:",
+            reply_markup=main_menu()
+        )
+        await query.delete_message()
+        
 # ============== SESSION BACK HANDLERS ==============
 
 async def back_to_session_countries(update: Update, context: ContextTypes.DEFAULT_TYPE):
