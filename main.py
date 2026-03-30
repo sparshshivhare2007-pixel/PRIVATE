@@ -1,19 +1,42 @@
 import logging
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config.settings import BOT_TOKEN
 from bot.handlers.start import start_command
 from bot.handlers.menu import handle_message
+from bot.handlers.buy_accounts import handle_buy_accounts
+from bot.handlers.country_callback import handle_country_callback
+from bot.handlers.back_handlers import back_to_menu, back_to_countries
+from bot.handlers.product_callback import handle_product_callback
 
 logging.basicConfig(level=logging.INFO)
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Handlers
+    # ============== COMMAND HANDLERS ==============
     app.add_handler(CommandHandler("start", start_command))
+    
+    # ============== MESSAGE HANDLERS ==============
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🤖 Bot started!")
+    # ============== CALLBACK QUERY HANDLERS ==============
+    # Country selection
+    app.add_handler(CallbackQueryHandler(handle_country_callback, pattern="^country_"))
+    
+    # Product selection
+    app.add_handler(CallbackQueryHandler(handle_product_callback, pattern="^product_"))
+    
+    # Back buttons
+    app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
+    app.add_handler(CallbackQueryHandler(back_to_countries, pattern="^back_to_countries$"))
+    
+    print("="*50)
+    print("🤖 Telegram Store Bot Started!")
+    print("="*50)
+    print("✅ Bot is running...")
+    print("📊 Press Ctrl+C to stop")
+    print("="*50)
+    
     app.run_polling()
 
 if __name__ == "__main__":
