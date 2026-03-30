@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import signal
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config.settings import BOT_TOKEN
 from bot.handlers.start import start_command
@@ -64,12 +63,9 @@ from bot.admin.login import (
 
 logging.basicConfig(level=logging.INFO)
 
-# Global variable for shutdown event
-shutdown_event = asyncio.Event()
-
 
 async def shutdown():
-    """Clean shutdown for bot and Telethon"""
+    """Clean shutdown for Telethon client"""
     print("\n🔄 Shutting down gracefully...")
     try:
         await close_telethon_client()
@@ -77,12 +73,6 @@ async def shutdown():
     except Exception as e:
         print(f"⚠️ Error closing Telethon: {e}")
     print("✅ Shutdown complete")
-    shutdown_event.set()
-
-
-def signal_handler():
-    """Handle shutdown signals"""
-    asyncio.create_task(shutdown())
 
 
 def main():
@@ -171,15 +161,6 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_session_countries, pattern="^back_to_session_countries$"))
     app.add_handler(CallbackQueryHandler(back_to_session_products, pattern="^back_to_session_products$"))
     
-    # Register signal handlers for graceful shutdown
-    try:
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
-    except NotImplementedError:
-        # Windows doesn't support add_signal_handler
-        pass
-    
     print("="*50)
     print("🤖 Telegram Store Bot Started!")
     print("="*50)
@@ -190,7 +171,7 @@ def main():
     try:
         app.run_polling()
     finally:
-        # Ensure cleanup on exit
+        # Cleanup on exit
         asyncio.run(shutdown())
 
 
