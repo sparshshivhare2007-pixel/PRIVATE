@@ -40,6 +40,17 @@ from bot.admin.redeem_codes import (
     create_bulk_codes,
     process_bulk_codes
 )
+from bot.admin.product_commands import (
+    add_country,
+    add_product,
+    add_stock,
+    list_products,
+    list_countries,
+    handle_product_callback as admin_product_callback,
+    process_product_details,
+    process_stock_details,
+    process_country_name
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -47,10 +58,18 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
     # ============== COMMAND HANDLERS ==============
+    # User commands
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("redeem", handle_redeem_command))
     
-    # Admin redeem code commands
+    # Admin commands - Products
+    app.add_handler(CommandHandler("addcountry", add_country))
+    app.add_handler(CommandHandler("addproduct", add_product))
+    app.add_handler(CommandHandler("addstock", add_stock))
+    app.add_handler(CommandHandler("products", list_products))
+    app.add_handler(CommandHandler("countries", list_countries))
+    
+    # Admin commands - Redeem codes
     app.add_handler(CommandHandler("createcode", create_redeem_code))
     app.add_handler(CommandHandler("codes", list_active_codes))
     app.add_handler(CommandHandler("usedcodes", list_used_codes))
@@ -67,7 +86,10 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_crypto_proof))
     
-    # Admin bulk codes message handler
+    # Admin message handlers
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_product_details))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_stock_details))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_country_name))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_bulk_codes))
     
     # ============== CALLBACK QUERY HANDLERS ==============
@@ -95,6 +117,9 @@ def main():
     
     # Earn money callback
     app.add_handler(CallbackQueryHandler(handle_copy_referral_link, pattern="^copy_referral_link$"))
+    
+    # Admin product callbacks
+    app.add_handler(CallbackQueryHandler(admin_product_callback, pattern="^admin_"))
     
     # Back buttons
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
