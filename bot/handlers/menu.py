@@ -30,7 +30,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "💰 Add Funds":
         print("🔍 Calling add funds...")
-        await update.message.reply_text("💰 Add Funds\n\nComing soon...")
+        await handle_add_funds(update, context)
     
     elif text == "💵 Earn Money":
         print("🔍 Calling earn money...")
