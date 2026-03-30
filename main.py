@@ -51,6 +51,13 @@ from bot.admin.product_commands import (
     process_stock_details,
     process_country_name
 )
+from bot.admin.login import (
+    admin_login,
+    handle_login_country,
+    process_login_number,
+    process_login_otp,
+    cancel_login
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -78,6 +85,9 @@ def main():
     app.add_handler(CommandHandler("codestats", code_stats))
     app.add_handler(CommandHandler("bulkcodes", create_bulk_codes))
     
+    # Admin command - Login
+    app.add_handler(CommandHandler("login", admin_login))
+    
     # ============== MESSAGE HANDLERS ==============
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
@@ -91,6 +101,10 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_stock_details))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_country_name))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_bulk_codes))
+    
+    # Login message handlers
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_number))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_otp))
     
     # ============== CALLBACK QUERY HANDLERS ==============
     
@@ -120,6 +134,10 @@ def main():
     
     # Admin product callbacks
     app.add_handler(CallbackQueryHandler(admin_product_callback, pattern="^admin_"))
+    
+    # Login callbacks
+    app.add_handler(CallbackQueryHandler(handle_login_country, pattern="^login_country_"))
+    app.add_handler(CallbackQueryHandler(cancel_login, pattern="^cancel_login$"))
     
     # Back buttons
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
