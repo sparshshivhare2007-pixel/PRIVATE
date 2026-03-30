@@ -2,6 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from bot.handlers.buy_accounts import handle_buy_accounts
 from bot.handlers.profile import handle_my_profile
+from bot.handlers.add_funds import handle_add_funds
 from bot.keyboards.main_menu import main_menu
 import logging
 
