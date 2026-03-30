@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from config.settings import UPI_ID, BINANCE_PAY_ID, USDT_ADDRESS, ADMIN_IDS, ADMIN_GROUP_ID
+from config.settings import UPI_ID, BINANCE_PAY_ID, USDT_ADDRESS, ADMIN_GROUP_ID
 from database.supabase import db
 import logging
 import os
@@ -144,9 +144,7 @@ async def handle_amount_message(update: Update, context: ContextTypes.DEFAULT_TY
     username = user[0] if user else 'No username'
     first_name = user[1] if user else 'Unknown'
     
-    # Send to admin group with tags
-    from config.settings import ADMIN_GROUP_ID
-    
+    # Send to admin group
     mention = f"[{first_name}](tg://user?id={user_id})"
     
     message_text = f"""💰 **NEW PAYMENT PENDING**
@@ -263,3 +261,8 @@ async def handle_admin_verify(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Clean up
     if user_id in pending_payments:
         del pending_payments[user_id]
+
+
+async def handle_crypto_proof(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle crypto payment screenshot (placeholder)"""
+    await update.message.reply_text("🔧 Crypto payments coming soon!")
