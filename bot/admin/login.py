@@ -7,7 +7,11 @@ import random
 import string
 from datetime import datetime
 from telethon import TelegramClient
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
+from telethon.errors import (
+    SessionPasswordNeededError,
+    PhoneCodeInvalidError,
+    PhoneCodeExpiredError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +40,22 @@ async def get_telethon_client():
 async def close_telethon_client():
     global _telethon_client
 
-    if _telethon_client and _telethon_client.is_connected():
-        await _telethon_client.disconnect()
+    if _telethon_client:
+        try:
+            await _telethon_client.disconnect()
+        except Exception:
+            pass
+
         _telethon_client = None
         logger.info("🔌 Telethon disconnected")
 
 
-# ================= LOGIN ROUTER (IMPORTANT) =================
+# ================= LOGIN ROUTER =================
 async def login_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Routes login messages based on step"""
+    """
+    Routes login messages BEFORE menu handler.
+    Must be called in main.py message handler.
+    """
     user_id = update.effective_user.id
     session = login_sessions.get(user_id)
 
@@ -73,17 +84,20 @@ async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No countries found.")
         return
 
-    keyboard = []
-    for c in countries:
-        flag = c[2] if c[2] else "🌍"
-        keyboard.append(
-            [InlineKeyboardButton(f"{flag} {c[1]}", callback_data=f"login_country_{c[0]}")]
-        )
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                f"{c[2] or '🌍'} {c[1]}",
+                callback_data=f"login_country_{c[0]}",
+            )
+        ]
+        for c in countries
+    ]
 
     keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel_login")])
 
     await update.message.reply_text(
-        "🔐 **Admin Login**\n\nSelect country:",
+        "🔐 *Admin Login*\n\nSelect country:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",
     )
@@ -106,7 +120,7 @@ async def handle_login_country(update: Update, context: ContextTypes.DEFAULT_TYP
     country_name = country[0] if country else "Unknown"
 
     await query.edit_message_text(
-        f"🔐 **Login - {country_name}**\n\n"
+        f"🔐 *Login - {country_name}*\n\n"
         "`+919876543210|price`\n\nExample:\n`+919876543210|70`\n\n"
         "Send number now.",
         parse_mode="Markdown",
@@ -134,30 +148,33 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         price = float(price_text.strip())
-    except:
+    except Exception:
         await update.message.reply_text("❌ Invalid price.")
         return True
 
-    login_sessions[user_id].update(
-        {
-            "number": number.strip(),
-            "price": price,
-            "step": "waiting_otp",
-        }
-    )
-
     try:
         client = await get_telethon_client()
-        await client.send_code_request(number)
+
+        # 🔥 IMPORTANT FIX (OTP expiry solution)
+        result = await client.send_code_request(number.strip())
+
+        login_sessions[user_id].update(
+            {
+                "number": number.strip(),
+                "price": price,
+                "phone_code_hash": result.phone_code_hash,
+                "step": "waiting_otp",
+            }
+        )
 
         await update.message.reply_text(
-            f"✅ Code sent to `{number}`\n\nSend OTP now.",
+            f"✅ OTP sent to `{number}`\n\nSend OTP now.",
             parse_mode="Markdown",
         )
 
     except Exception as e:
         logger.error(e)
-        await update.message.reply_text(f"❌ Failed: {e}")
+        await update.message.reply_text(f"❌ Failed sending OTP:\n{e}")
 
     return True
 
@@ -178,13 +195,21 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         client = await get_telethon_client()
-        await client.sign_in(session["number"], code=otp)
+
+        # 🔥 FIXED SIGN IN
+        await client.sign_in(
+            phone=session["number"],
+            code=otp,
+            phone_code_hash=session["phone_code_hash"],
+        )
 
         country_id = session["country_id"]
         number = session["number"]
         price = session["price"]
 
-        country = db.fetch_one("SELECT name FROM countries WHERE id=%s", (country_id,))
+        country = db.fetch_one(
+            "SELECT name FROM countries WHERE id=%s", (country_id,)
+        )
         country_name = country[0]
 
         product = db.fetch_one(
@@ -214,8 +239,12 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         product_id = product[0]
 
-        password = "".join(random.choices(string.ascii_letters + string.digits, k=8))
-        two_fa = "".join(random.choices(string.ascii_letters + string.digits, k=6))
+        password = "".join(
+            random.choices(string.ascii_letters + string.digits, k=8)
+        )
+        two_fa = "".join(
+            random.choices(string.ascii_letters + string.digits, k=6)
+        )
 
         db.execute(
             "INSERT INTO stock (product_id,number,password,otp,two_fa,is_sold,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
@@ -235,9 +264,15 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except PhoneCodeInvalidError:
         await update.message.reply_text("❌ Wrong OTP.")
+
+    except PhoneCodeExpiredError:
+        await update.message.reply_text("❌ OTP expired. Use /login again.")
+        login_sessions.pop(user_id, None)
+
     except SessionPasswordNeededError:
         await update.message.reply_text("❌ Account has 2FA enabled.")
         login_sessions.pop(user_id, None)
+
     except Exception as e:
         logger.error(e)
         await update.message.reply_text(f"❌ Login failed: {e}")
