@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import signal
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config.settings import BOT_TOKEN
 from bot.handlers.start import start_command
@@ -56,10 +58,32 @@ from bot.admin.login import (
     handle_login_country,
     process_login_number,
     process_login_otp,
-    cancel_login
+    cancel_login,
+    close_telethon_client
 )
 
 logging.basicConfig(level=logging.INFO)
+
+# Global variable for shutdown event
+shutdown_event = asyncio.Event()
+
+
+async def shutdown():
+    """Clean shutdown for bot and Telethon"""
+    print("\n🔄 Shutting down gracefully...")
+    try:
+        await close_telethon_client()
+        print("✅ Telethon client closed")
+    except Exception as e:
+        print(f"⚠️ Error closing Telethon: {e}")
+    print("✅ Shutdown complete")
+    shutdown_event.set()
+
+
+def signal_handler():
+    """Handle shutdown signals"""
+    asyncio.create_task(shutdown())
+
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -147,6 +171,15 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_session_countries, pattern="^back_to_session_countries$"))
     app.add_handler(CallbackQueryHandler(back_to_session_products, pattern="^back_to_session_products$"))
     
+    # Register signal handlers for graceful shutdown
+    try:
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+    except NotImplementedError:
+        # Windows doesn't support add_signal_handler
+        pass
+    
     print("="*50)
     print("🤖 Telegram Store Bot Started!")
     print("="*50)
@@ -154,7 +187,12 @@ def main():
     print("📊 Press Ctrl+C to stop")
     print("="*50)
     
-    app.run_polling()
+    try:
+        app.run_polling()
+    finally:
+        # Ensure cleanup on exit
+        asyncio.run(shutdown())
+
 
 if __name__ == "__main__":
     main()
