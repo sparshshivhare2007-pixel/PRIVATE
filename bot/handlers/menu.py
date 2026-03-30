@@ -4,6 +4,7 @@ from bot.handlers.buy_accounts import handle_buy_accounts
 from bot.handlers.buy_sessions import handle_buy_sessions
 from bot.handlers.profile import handle_my_profile
 from bot.handlers.add_funds import handle_add_funds
+from bot.handlers.earn_money import handle_earn_money
 from bot.keyboards.main_menu import main_menu
 import logging
 
@@ -35,7 +36,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "💵 Earn Money":
         print("🔍 Calling earn money...")
-        await update.message.reply_text("💵 Earn Money\n\nComing soon...")
+        await handle_earn_money(update, context)
     
     elif text == "👤 My Profile":
         print("🔍 Calling my profile...")
