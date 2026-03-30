@@ -6,6 +6,13 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+async def safe_reply(update, text, **kwargs):
+    """Safe reply for both message and callback query"""
+    if update.message:
+        return await update.message.reply_text(text, **kwargs)
+    elif update.callback_query:
+        return await update.callback_query.edit_message_text(text, **kwargs)
+
 async def handle_buy_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle Buy Sessions button - Show country selection"""
     user_id = update.effective_user.id
@@ -19,7 +26,7 @@ async def handle_buy_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         
         if not countries:
-            await update.message.reply_text("No countries available. Please check back later.")
+            await safe_reply(update, "No countries available. Please check back later.")
             return
         
         # Create inline keyboard
@@ -30,7 +37,8 @@ async def handle_buy_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         keyboard.append([InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_menu")])
         
-        await update.message.reply_text(
+        await safe_reply(
+            update,
             "🌍 **SELECT COUNTRY (SESSIONS)**\n\nChoose a country to see available sessions:",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
@@ -38,7 +46,7 @@ async def handle_buy_sessions(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     except Exception as e:
         logger.error(f"Error fetching countries: {e}")
-        await update.message.reply_text("❌ Error loading countries. Please try again later.")
+        await safe_reply(update, "❌ Error loading countries. Please try again later.")
 
 
 async def handle_session_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
