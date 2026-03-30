@@ -72,10 +72,16 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
     session = login_sessions.get(user_id)
     
+    # Debug print
+    print(f"🔍 [DEBUG] process_login_number called for user {user_id}")
+    print(f"🔍 Session: {session}")
+    
     if not session or session.get('step') != 'waiting_number':
+        print("🔍 No active login session or wrong step")
         return False
     
     text = update.message.text.strip()
+    print(f"🔍 Received text: {text}")
     
     if text == '/cancel':
         login_sessions.pop(user_id, None)
@@ -113,12 +119,13 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(
         f"✅ Number received!\n\n"
         f"📱 **Number:** `{number}`\n"
-        f"💰 **Price:** ₹{price}\n\n"
+        f"💰 **Price:** ₹{price:.2f}\n\n"
         f"🔑 **OTP:** `{otp}`\n\n"
         f"Please verify OTP to complete login.\n"
         f"Send the OTP to confirm.",
         parse_mode='Markdown'
     )
+    return True
 
 
 async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,10 +133,16 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     session = login_sessions.get(user_id)
     
+    # Debug print
+    print(f"🔍 [DEBUG] process_login_otp called for user {user_id}")
+    print(f"🔍 Session: {session}")
+    
     if not session or session.get('step') != 'waiting_otp':
+        print("🔍 No active login session or wrong step")
         return False
     
     entered_otp = update.message.text.strip()
+    print(f"🔍 Received OTP: {entered_otp}")
     
     if entered_otp == '/cancel':
         login_sessions.pop(user_id, None)
@@ -166,6 +179,11 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (country_id, price)
         )
     
+    if not product:
+        await update.message.reply_text("❌ Failed to create product!")
+        login_sessions.pop(user_id, None)
+        return True
+    
     product_id = product[0]
     
     # Generate random password and 2FA
@@ -186,7 +204,7 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ **Login Successful!**\n\n"
         f"📱 **Number:** `{number}`\n"
-        f"💰 **Price:** ₹{price}\n"
+        f"💰 **Price:** ₹{price:.2f}\n"
         f"🔑 **Password:** `{password}`\n"
         f"🔐 **2FA Password:** `{two_fa}`\n\n"
         f"Account added to stock successfully!\n"
