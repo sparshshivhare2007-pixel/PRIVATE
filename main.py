@@ -103,16 +103,18 @@ def main():
     app.add_handler(CommandHandler("login", admin_login))
     
     # ============== MESSAGE HANDLERS (ORDER MATTERS!) ==============
-    # FIRST: Login handlers (admin login flow)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_number))
+    # FIRST: OTP handler (for login OTP) - MUST BE BEFORE number handler
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_otp))
     
-    # SECOND: Add funds handlers
+    # SECOND: Login number handler
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_number))
+    
+    # THIRD: Add funds handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_utr_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_crypto_proof))
     
-    # THIRD: Admin product handlers
+    # FOURTH: Admin product handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_product_details))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_stock_details))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_country_name))
