@@ -6,11 +6,26 @@ import logging
 import random
 import string
 from datetime import datetime
+import asyncio
+from telethon import TelegramClient
+from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
 
 logger = logging.getLogger(__name__)
 
 # Store login sessions
 login_sessions = {}
+
+# Telethon client config (store in .env)
+API_ID = 123456  # Get from my.telegram.org
+API_HASH = "your_api_hash"
+SESSION_NAME = "bot_session"
+
+
+async def get_telethon_client():
+    """Get or create Telethon client"""
+    client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+    await client.connect()
+    return client
 
 
 @admin_only
@@ -68,13 +83,11 @@ async def handle_login_country(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process number and price from admin"""
+    """Process number and price from admin - Initiate Telegram login"""
     user_id = update.effective_user.id
     session = login_sessions.get(user_id)
     
-    # Debug print
     print(f"🔍 [DEBUG] process_login_number called for user {user_id}")
-    print(f"🔍 Session: {session}")
     
     if not session or session.get('step') != 'waiting_number':
         print("🔍 No active login session or wrong step")
@@ -104,38 +117,50 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("❌ Invalid price! Enter a valid number.")
         return True
     
-    # Generate OTP
-    otp = ''.join(random.choices(string.digits, k=6))
-    
-    # Store session
+    # Store number and price
     login_sessions[user_id] = {
         'country_id': session['country_id'],
         'number': number,
         'price': price,
-        'otp': otp,
         'step': 'waiting_otp'
     }
     
-    await update.message.reply_text(
-        f"✅ Number received!\n\n"
-        f"📱 **Number:** `{number}`\n"
-        f"💰 **Price:** ₹{price:.2f}\n\n"
-        f"🔑 **OTP:** `{otp}`\n\n"
-        f"Please verify OTP to complete login.\n"
-        f"Send the OTP to confirm.",
-        parse_mode='Markdown'
-    )
+    # Initiate Telegram login via Telethon
+    try:
+        client = await get_telethon_client()
+        
+        # Send login code to the number
+        await client.send_code_request(number)
+        
+        await update.message.reply_text(
+            f"✅ Number received!\n\n"
+            f"📱 **Number:** `{number}`\n"
+            f"💰 **Price:** ₹{price:.2f}\n\n"
+            f"🔐 **Login code has been sent to your Telegram account!**\n\n"
+            f"Please check your Telegram messages (official Telegram app) for the 5-digit login code.\n"
+            f"Send the OTP here to complete login.\n\n"
+            f"*If you don't see the code, check your Telegram app or email.*",
+            parse_mode='Markdown'
+        )
+        
+    except Exception as e:
+        logger.error(f"Telethon error: {e}")
+        await update.message.reply_text(
+            f"❌ Failed to send login code. Error: {str(e)}\n\n"
+            f"Please check the number and try again.",
+            parse_mode='Markdown'
+        )
+        login_sessions.pop(user_id, None)
+    
     return True
 
 
 async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process OTP verification"""
+    """Process OTP verification via Telethon"""
     user_id = update.effective_user.id
     session = login_sessions.get(user_id)
     
-    # Debug print
     print(f"🔍 [DEBUG] process_login_otp called for user {user_id}")
-    print(f"🔍 Session: {session}")
     
     if not session or session.get('step') != 'waiting_otp':
         print("🔍 No active login session or wrong step")
@@ -149,71 +174,97 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Login cancelled.")
         return True
     
-    if entered_otp != session['otp']:
-        await update.message.reply_text("❌ Invalid OTP! Try again.")
+    # Validate OTP (5 or 6 digits)
+    if not entered_otp.isdigit() or len(entered_otp) not in [5, 6]:
+        await update.message.reply_text("❌ Invalid OTP! Please send a 5 or 6-digit code.")
         return True
     
-    # OTP verified - Add number to database
-    country_id = session['country_id']
-    number = session['number']
-    price = session['price']
-    
-    # Get country name
-    country = db.fetch_one("SELECT name FROM countries WHERE id = %s", (country_id,))
-    country_name = country[0] if country else "Unknown"
-    
-    # Get or create product for this country
-    product = db.fetch_one(
-        "SELECT id FROM products WHERE country_id = %s AND name = 'Telegram Account' AND price = %s",
-        (country_id, price)
-    )
-    
-    if not product:
-        # Create new product
-        db.execute(
-            "INSERT INTO products (name, price, year, stock, country_id, country_name, category, is_active, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (f"Telegram Account {country_name}", price, 2025, 0, country_id, country_name, 'account', True, datetime.now())
-        )
+    # Verify OTP via Telethon
+    try:
+        client = await get_telethon_client()
+        number = session['number']
+        
+        # Sign in with the OTP
+        await client.sign_in(number, code=entered_otp)
+        
+        # Login successful - Add number to database
+        country_id = session['country_id']
+        price = session['price']
+        
+        # Get country name
+        country = db.fetch_one("SELECT name FROM countries WHERE id = %s", (country_id,))
+        country_name = country[0] if country else "Unknown"
+        
+        # Get or create product for this country
         product = db.fetch_one(
             "SELECT id FROM products WHERE country_id = %s AND name = 'Telegram Account' AND price = %s",
             (country_id, price)
         )
-    
-    if not product:
-        await update.message.reply_text("❌ Failed to create product!")
+        
+        if not product:
+            # Create new product
+            db.execute(
+                "INSERT INTO products (name, price, year, stock, country_id, country_name, category, is_active, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (f"Telegram Account {country_name}", price, 2025, 0, country_id, country_name, 'account', True, datetime.now())
+            )
+            product = db.fetch_one(
+                "SELECT id FROM products WHERE country_id = %s AND name = 'Telegram Account' AND price = %s",
+                (country_id, price)
+            )
+        
+        if not product:
+            await update.message.reply_text("❌ Failed to create product!")
+            login_sessions.pop(user_id, None)
+            return True
+        
+        product_id = product[0]
+        
+        # Generate random password and 2FA
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+        two_fa = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        
+        # Add to stock
+        db.execute(
+            "INSERT INTO stock (product_id, number, password, otp, two_fa, is_sold, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (product_id, number, password, entered_otp, two_fa, False, datetime.now())
+        )
+        
+        # Update product stock count
+        stock_count = db.fetch_one("SELECT COUNT(*) FROM stock WHERE product_id = %s AND is_sold = FALSE", (product_id,))
+        new_stock = stock_count[0] if stock_count else 0
+        db.execute("UPDATE products SET stock = %s WHERE id = %s", (new_stock, product_id))
+        
+        await update.message.reply_text(
+            f"✅ **Login Successful!**\n\n"
+            f"📱 **Number:** `{number}`\n"
+            f"💰 **Price:** ₹{price:.2f}\n"
+            f"🔑 **Password:** `{password}`\n"
+            f"🔐 **2FA Password:** `{two_fa}`\n\n"
+            f"Account added to stock successfully!\n"
+            f"📊 **Total stock:** {new_stock}",
+            parse_mode='Markdown'
+        )
+        
+        # Clean up session
+        login_sessions.pop(user_id, None)
+        
+    except PhoneCodeInvalidError:
+        await update.message.reply_text("❌ Invalid OTP! Please try again.")
+        return True
+    except SessionPasswordNeededError:
+        await update.message.reply_text(
+            "❌ Two-factor authentication is enabled on this account.\n"
+            "Please disable 2FA or use a different number.",
+            parse_mode='Markdown'
+        )
+        login_sessions.pop(user_id, None)
+        return True
+    except Exception as e:
+        logger.error(f"Telethon sign in error: {e}")
+        await update.message.reply_text(f"❌ Login failed: {str(e)}")
         login_sessions.pop(user_id, None)
         return True
     
-    product_id = product[0]
-    
-    # Generate random password and 2FA
-    password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-    two_fa = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
-    
-    # Add to stock
-    db.execute(
-        "INSERT INTO stock (product_id, number, password, otp, two_fa, is_sold, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (product_id, number, password, entered_otp, two_fa, False, datetime.now())
-    )
-    
-    # Update product stock count
-    stock_count = db.fetch_one("SELECT COUNT(*) FROM stock WHERE product_id = %s AND is_sold = FALSE", (product_id,))
-    new_stock = stock_count[0] if stock_count else 0
-    db.execute("UPDATE products SET stock = %s WHERE id = %s", (new_stock, product_id))
-    
-    await update.message.reply_text(
-        f"✅ **Login Successful!**\n\n"
-        f"📱 **Number:** `{number}`\n"
-        f"💰 **Price:** ₹{price:.2f}\n"
-        f"🔑 **Password:** `{password}`\n"
-        f"🔐 **2FA Password:** `{two_fa}`\n\n"
-        f"Account added to stock successfully!\n"
-        f"📊 **Total stock:** {new_stock}",
-        parse_mode='Markdown'
-    )
-    
-    # Clean up session
-    login_sessions.pop(user_id, None)
     return True
 
 
