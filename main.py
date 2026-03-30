@@ -73,7 +73,7 @@ from bot.admin.product_commands import (
     process_country_name,
 )
 
-# ✅ LOGIN SYSTEM (NEW ROUTER)
+# ================= LOGIN SYSTEM =================
 from bot.admin.login import (
     admin_login,
     handle_login_country,
@@ -82,19 +82,29 @@ from bot.admin.login import (
     close_telethon_client,
 )
 
-logging.basicConfig(level=logging.INFO)
+# =================================================
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    level=logging.INFO,
+)
+
+logger = logging.getLogger(__name__)
 
 
 # ================= CLEAN SHUTDOWN =================
-async def shutdown():
-    print("\n🔄 Shutting down gracefully...")
+async def shutdown(app: Application):
+    logger.info("🔄 Shutting down gracefully...")
+
     try:
         await close_telethon_client()
-        print("✅ Telethon closed")
+        logger.info("✅ Telethon disconnected")
     except Exception as e:
-        print(f"⚠️ Shutdown error: {e}")
+        logger.error(f"Shutdown error: {e}")
 
-    print("✅ Bot stopped")
+    await app.stop()
+    await app.shutdown()
+
+    logger.info("✅ Bot stopped cleanly")
 
 
 # ================= MAIN =================
@@ -127,16 +137,16 @@ def main():
     app.add_handler(CommandHandler("login", admin_login))
 
     # =================================================
-    # MESSAGE HANDLERS (VERY IMPORTANT ORDER)
+    # MESSAGE HANDLERS (ORDER MATTERS)
     # =================================================
 
-    # ✅ LOGIN ROUTER (FIRST PRIORITY)
+    # 🔥 LOGIN ROUTER (HIGHEST PRIORITY)
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, login_router),
         group=0,
     )
 
-    # ✅ ADD FUNDS FLOW
+    # 💰 ADD FUNDS FLOW
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_utr_message),
         group=1,
@@ -150,7 +160,7 @@ def main():
         group=1,
     )
 
-    # ✅ ADMIN PRODUCT INPUTS
+    # 🛠 ADMIN INPUT FLOWS
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, process_product_details),
         group=2,
@@ -168,7 +178,7 @@ def main():
         group=2,
     )
 
-    # ✅ MAIN MENU (LAST CATCH ALL)
+    # 🧭 MAIN MENU (LAST)
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
         group=99,
@@ -241,9 +251,9 @@ def main():
     print("=" * 50)
 
     try:
-        app.run_polling()
+        app.run_polling(close_loop=False)
     finally:
-        asyncio.run(shutdown())
+        asyncio.run(shutdown(app))
 
 
 if __name__ == "__main__":
