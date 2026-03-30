@@ -15,17 +15,34 @@ logger = logging.getLogger(__name__)
 # Store login sessions
 login_sessions = {}
 
-# Telethon client config (store in .env)
-API_ID = 20138139  # Get from my.telegram.org
+# Telethon client config
+API_ID = 20138139
 API_HASH = "ff813495ed17a07723000a9751f4c3ee"
 SESSION_NAME = "bot_session"
+
+# Global client reference
+_telethon_client = None
 
 
 async def get_telethon_client():
     """Get or create Telethon client"""
-    client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-    await client.connect()
-    return client
+    global _telethon_client
+    
+    if _telethon_client is None or not _telethon_client.is_connected():
+        _telethon_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        await _telethon_client.connect()
+        logger.info("✅ Telethon client connected")
+    
+    return _telethon_client
+
+
+async def close_telethon_client():
+    """Close Telethon client properly"""
+    global _telethon_client
+    if _telethon_client and _telethon_client.is_connected():
+        await _telethon_client.disconnect()
+        _telethon_client = None
+        logger.info("🔌 Telethon client disconnected")
 
 
 @admin_only
@@ -133,7 +150,7 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
         await client.send_code_request(number)
         
         await update.message.reply_text(
-            f"✅ Number received!\n\n"
+            f"✅ **Number received!**\n\n"
             f"📱 **Number:** `{number}`\n"
             f"💰 **Price:** ₹{price:.2f}\n\n"
             f"🔐 **Login code has been sent to your Telegram account!**\n\n"
@@ -187,7 +204,9 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Sign in with the OTP
         await client.sign_in(number, code=entered_otp)
         
-        # Login successful - Add number to database
+        # ========== LOGIN SUCCESSFUL ==========
+        
+        # Add number to database
         country_id = session['country_id']
         price = session['price']
         
@@ -234,19 +253,34 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_stock = stock_count[0] if stock_count else 0
         db.execute("UPDATE products SET stock = %s WHERE id = %s", (new_stock, product_id))
         
+        # ========== SUCCESS MESSAGE ==========
+        success_message = f"""
+🎉 **LOGIN SUCCESSFUL!** 🎉
+
+━━━━━━━━━━━━━━━━━━━━━━
+📱 **Number:** `{number}`
+💰 **Price:** ₹{price:.2f}
+🌍 **Country:** {country_name}
+━━━━━━━━━━━━━━━━━━━━━━
+
+🔑 **Password:** `{password}`
+🔐 **2FA Password:** `{two_fa}`
+
+✅ **Account added to stock successfully!**
+📊 **Total stock:** {new_stock}
+
+━━━━━━━━━━━━━━━━━━━━━━
+📌 Users can now buy this account!
+"""
+        
         await update.message.reply_text(
-            f"✅ **Login Successful!**\n\n"
-            f"📱 **Number:** `{number}`\n"
-            f"💰 **Price:** ₹{price:.2f}\n"
-            f"🔑 **Password:** `{password}`\n"
-            f"🔐 **2FA Password:** `{two_fa}`\n\n"
-            f"Account added to stock successfully!\n"
-            f"📊 **Total stock:** {new_stock}",
+            success_message,
             parse_mode='Markdown'
         )
         
         # Clean up session
         login_sessions.pop(user_id, None)
+        print(f"✅ Login completed for number: {number}")
         
     except PhoneCodeInvalidError:
         await update.message.reply_text("❌ Invalid OTP! Please try again.")
