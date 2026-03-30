@@ -115,6 +115,11 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
     text = update.message.text.strip()
     print(f"🔍 Received text: {text}")
     
+    # 🔥 CRITICAL: Agar message sirf digits hai (5-6 digits) to OTP handler ko de do
+    if text.isdigit() and len(text) in [5, 6]:
+        print("🔍 [DEBUG] Skipping - looks like OTP, letting process_login_otp handle it")
+        return False
+    
     if text == '/cancel':
         login_sessions.pop(user_id, None)
         await update.message.reply_text("❌ Login cancelled.")
