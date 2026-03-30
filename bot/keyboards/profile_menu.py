@@ -1,5 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ButtonStyle
+from pyrogram.enums import ButtonStyle
 
 def profile_keyboard():
     """Profile menu inline keyboard with colored buttons"""
