@@ -4,8 +4,20 @@ from config.settings import BOT_TOKEN
 from bot.handlers.start import start_command
 from bot.handlers.menu import handle_message
 from bot.handlers.buy_accounts import handle_buy_accounts
+from bot.handlers.buy_sessions import (
+    handle_buy_sessions,
+    handle_session_country_callback,
+    handle_session_product_callback,
+    handle_session_confirm_callback
+)
 from bot.handlers.country_callback import handle_country_callback
-from bot.handlers.back_handlers import back_to_menu, back_to_countries, back_to_products
+from bot.handlers.back_handlers import (
+    back_to_menu,
+    back_to_countries,
+    back_to_products,
+    back_to_session_countries,
+    back_to_session_products
+)
 from bot.handlers.product_callback import handle_product_callback
 from bot.handlers.profile import handle_my_profile
 from bot.handlers.profile_callbacks import handle_profile_callbacks
@@ -35,11 +47,20 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_crypto_proof))
     
     # ============== CALLBACK QUERY HANDLERS ==============
-    # Country selection
+    
+    # Accounts - Country selection
     app.add_handler(CallbackQueryHandler(handle_country_callback, pattern="^country_"))
     
-    # Product selection
+    # Accounts - Product selection
     app.add_handler(CallbackQueryHandler(handle_product_callback, pattern="^product_"))
+    app.add_handler(CallbackQueryHandler(handle_product_callback, pattern="^confirm_purchase_"))
+    
+    # Sessions - Country selection
+    app.add_handler(CallbackQueryHandler(handle_session_country_callback, pattern="^session_country_"))
+    
+    # Sessions - Product selection
+    app.add_handler(CallbackQueryHandler(handle_session_product_callback, pattern="^session_product_"))
+    app.add_handler(CallbackQueryHandler(handle_session_confirm_callback, pattern="^session_confirm_"))
     
     # Profile buttons
     app.add_handler(CallbackQueryHandler(handle_profile_callbacks, pattern="^(deposit_now|my_orders|my_payments)$"))
@@ -52,6 +73,8 @@ def main():
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
     app.add_handler(CallbackQueryHandler(back_to_countries, pattern="^back_to_countries$"))
     app.add_handler(CallbackQueryHandler(back_to_products, pattern="^back_to_products$"))
+    app.add_handler(CallbackQueryHandler(back_to_session_countries, pattern="^back_to_session_countries$"))
+    app.add_handler(CallbackQueryHandler(back_to_session_products, pattern="^back_to_session_products$"))
     
     print("="*50)
     print("🤖 Telegram Store Bot Started!")
