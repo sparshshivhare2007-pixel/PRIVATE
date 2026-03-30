@@ -29,6 +29,17 @@ from bot.handlers.add_funds import (
     handle_crypto_proof,
     handle_admin_verify
 )
+from bot.handlers.earn_money import handle_earn_money, handle_redeem_command, handle_copy_referral_link
+from bot.admin.redeem_codes import (
+    create_redeem_code,
+    list_active_codes,
+    list_used_codes,
+    disable_code,
+    enable_code,
+    code_stats,
+    create_bulk_codes,
+    process_bulk_codes
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -37,6 +48,16 @@ def main():
     
     # ============== COMMAND HANDLERS ==============
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("redeem", handle_redeem_command))
+    
+    # Admin redeem code commands
+    app.add_handler(CommandHandler("createcode", create_redeem_code))
+    app.add_handler(CommandHandler("codes", list_active_codes))
+    app.add_handler(CommandHandler("usedcodes", list_used_codes))
+    app.add_handler(CommandHandler("disablecode", disable_code))
+    app.add_handler(CommandHandler("enablecode", enable_code))
+    app.add_handler(CommandHandler("codestats", code_stats))
+    app.add_handler(CommandHandler("bulkcodes", create_bulk_codes))
     
     # ============== MESSAGE HANDLERS ==============
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -45,6 +66,9 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_utr_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_crypto_proof))
+    
+    # Admin bulk codes message handler
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_bulk_codes))
     
     # ============== CALLBACK QUERY HANDLERS ==============
     
@@ -68,6 +92,9 @@ def main():
     # Add funds callbacks
     app.add_handler(CallbackQueryHandler(handle_payment_callback, pattern="^pay_"))
     app.add_handler(CallbackQueryHandler(handle_admin_verify, pattern="^(verify|reject)_"))
+    
+    # Earn money callback
+    app.add_handler(CallbackQueryHandler(handle_copy_referral_link, pattern="^copy_referral_link$"))
     
     # Back buttons
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
