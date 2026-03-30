@@ -44,7 +44,7 @@ async def handle_payment_callback(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     
     if data == "pay_upi":
-        qr_path = "assets/qr/upi_qr.png"
+        qr_path = "assets/qr/upi_qr.jpg"
         
         text = f"""**UPI PAYMENT (Auto-Verify)**
 
