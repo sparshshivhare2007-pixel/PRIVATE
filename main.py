@@ -88,23 +88,24 @@ def main():
     # Admin command - Login
     app.add_handler(CommandHandler("login", admin_login))
     
-    # ============== MESSAGE HANDLERS ==============
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # ============== MESSAGE HANDLERS (ORDER MATTERS!) ==============
+    # FIRST: Login handlers (admin login flow)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_number))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_otp))
     
-    # ============== ADD FUNDS MESSAGE HANDLERS ==============
+    # SECOND: Add funds handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_utr_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_crypto_proof))
     
-    # Admin message handlers
+    # THIRD: Admin product handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_product_details))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_stock_details))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_country_name))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_bulk_codes))
     
-    # Login message handlers
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_number))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, process_login_otp))
+    # LAST: Main menu handler (catch-all for buttons)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # ============== CALLBACK QUERY HANDLERS ==============
     
