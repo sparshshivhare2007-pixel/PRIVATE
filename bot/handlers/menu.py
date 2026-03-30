@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from bot.handlers.buy_accounts import handle_buy_accounts
+from bot.handlers.profile import handle_my_profile
 from bot.keyboards.main_menu import main_menu
 import logging
 
@@ -36,7 +37,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "👤 My Profile":
         print("🔍 Calling my profile...")
-        await update.message.reply_text("👤 My Profile\n\nComing soon...")
+        await handle_my_profile(update, context)
     
     elif text == "❓ How to Use":
         print("🔍 Calling how to use...")
