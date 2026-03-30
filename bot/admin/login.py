@@ -83,6 +83,7 @@ async def handle_login_country(update: Update, context: ContextTypes.DEFAULT_TYP
         'country_id': country_id,
         'step': 'waiting_number'
     }
+    print(f"🔍 [DEBUG] Session saved for user {user_id}: {login_sessions[user_id]}")
     
     # Get country name
     country = db.fetch_one("SELECT name FROM countries WHERE id = %s", (country_id,))
@@ -105,6 +106,7 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
     session = login_sessions.get(user_id)
     
     print(f"🔍 [DEBUG] process_login_number called for user {user_id}")
+    print(f"🔍 Session: {session}")
     
     if not session or session.get('step') != 'waiting_number':
         print("🔍 No active login session or wrong step")
@@ -141,6 +143,7 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
         'price': price,
         'step': 'waiting_otp'
     }
+    print(f"🔍 Updated session to waiting_otp: {login_sessions[user_id]}")
     
     # Initiate Telegram login via Telethon
     try:
@@ -167,7 +170,8 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
             f"Please check the number and try again.",
             parse_mode='Markdown'
         )
-        login_sessions.pop(user_id, None)
+        # Don't pop session here - let user try again with same session
+        return True
     
     return True
 
@@ -178,6 +182,7 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = login_sessions.get(user_id)
     
     print(f"🔍 [DEBUG] process_login_otp called for user {user_id}")
+    print(f"🔍 Session: {session}")
     
     if not session or session.get('step') != 'waiting_otp':
         print("🔍 No active login session or wrong step")
