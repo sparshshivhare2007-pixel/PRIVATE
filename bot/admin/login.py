@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 login_sessions = {}
 
 # Telethon client config (store in .env)
-API_ID = 123456  # Get from my.telegram.org
-API_HASH = "your_api_hash"
+API_ID = 20138139  # Get from my.telegram.org
+API_HASH = "ff813495ed17a07723000a9751f4c3ee"
 SESSION_NAME = "bot_session"
 
 
