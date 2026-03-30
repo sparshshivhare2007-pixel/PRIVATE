@@ -9,6 +9,14 @@ from bot.handlers.back_handlers import back_to_menu, back_to_countries, back_to_
 from bot.handlers.product_callback import handle_product_callback
 from bot.handlers.profile import handle_my_profile
 from bot.handlers.profile_callbacks import handle_profile_callbacks
+from bot.handlers.add_funds import (
+    handle_add_funds,
+    handle_payment_callback,
+    handle_utr_message,
+    handle_amount_message,
+    handle_crypto_proof,
+    handle_admin_verify
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,6 +29,11 @@ def main():
     # ============== MESSAGE HANDLERS ==============
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
+    # ============== ADD FUNDS MESSAGE HANDLERS ==============
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_utr_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount_message))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_crypto_proof))
+    
     # ============== CALLBACK QUERY HANDLERS ==============
     # Country selection
     app.add_handler(CallbackQueryHandler(handle_country_callback, pattern="^country_"))
@@ -30,6 +43,10 @@ def main():
     
     # Profile buttons
     app.add_handler(CallbackQueryHandler(handle_profile_callbacks, pattern="^(deposit_now|my_orders|my_payments)$"))
+    
+    # Add funds callbacks
+    app.add_handler(CallbackQueryHandler(handle_payment_callback, pattern="^pay_"))
+    app.add_handler(CallbackQueryHandler(handle_admin_verify, pattern="^(verify|reject)_"))
     
     # Back buttons
     app.add_handler(CallbackQueryHandler(back_to_menu, pattern="^back_to_menu$"))
