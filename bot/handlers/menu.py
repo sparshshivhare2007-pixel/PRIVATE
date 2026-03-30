@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from bot.handlers.buy_accounts import handle_buy_accounts
+from bot.handlers.buy_sessions import handle_buy_sessions
 from bot.handlers.profile import handle_my_profile
 from bot.handlers.add_funds import handle_add_funds
 from bot.keyboards.main_menu import main_menu
@@ -26,7 +27,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "🛍️ Buy Sessions":
         print("🔍 Calling buy sessions...")
-        await update.message.reply_text("🛍️ Buy Sessions\n\nComing soon...")
+        await handle_buy_sessions(update, context)
     
     elif text == "💰 Add Funds":
         print("🔍 Calling add funds...")
