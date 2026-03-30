@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from database.supabase import db
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -158,3 +159,119 @@ async def handle_session_product_callback(update: Update, context: ContextTypes.
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
+
+
+async def handle_session_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle session purchase confirmation"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = query.data
+    await query.answer()
+    
+    if data.startswith("session_confirm_"):
+        product_id = data.replace("session_confirm_", "")
+        print(f"🔍 Session confirm: {product_id}")
+        
+        # Get product details
+        product = db.fetch_one(
+            "SELECT id, name, year, price, stock, country_name FROM products WHERE id = %s AND category = 'session'",
+            (product_id,)
+        )
+        
+        if not product:
+            await query.edit_message_text("❌ Product not found!")
+            return
+        
+        product_id_db = product[0]
+        product_name = product[1]
+        year = product[2]
+        price = product[3]
+        stock = product[4]
+        country_name = product[5]
+        
+        # Check user balance
+        user = db.fetch_one("SELECT balance FROM users WHERE user_id = %s", (user_id,))
+        balance = user[0] if user else 0
+        
+        if balance < price:
+            await query.edit_message_text(
+                f"❌ **Insufficient Balance!**\n\n"
+                f"Your Balance: ₹{balance:.2f}\n"
+                f"Required: ₹{price:.2f}\n\n"
+                f"Please add funds and try again.",
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Check stock
+        if stock <= 0:
+            await query.edit_message_text("❌ Out of stock! Please try again later.")
+            return
+        
+        # Get session from stock
+        session_item = db.fetch_one(
+            "SELECT id, session_string FROM stock WHERE product_id = %s AND is_sold = FALSE LIMIT 1",
+            (product_id_db,)
+        )
+        
+        if not session_item:
+            await query.edit_message_text("❌ No session available. Please contact support.")
+            return
+        
+        session_id = session_item[0]
+        session_string = session_item[1]
+        
+        # Update balance
+        new_balance = balance - price
+        db.execute(
+            "UPDATE users SET balance = %s, total_spent = total_spent + %s WHERE user_id = %s",
+            (new_balance, price, user_id)
+        )
+        
+        # Mark session as sold
+        db.execute(
+            "UPDATE stock SET is_sold = TRUE, sold_to = %s, sold_at = NOW() WHERE id = %s",
+            (user_id, session_id)
+        )
+        
+        # Update product stock
+        new_stock = stock - 1
+        db.execute(
+            "UPDATE products SET stock = %s WHERE id = %s",
+            (new_stock, product_id_db)
+        )
+        
+        # Create order
+        order_id = f"SESS_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        db.execute(
+            "INSERT INTO orders (order_id, user_id, product_id, product_name, country, amount, category, status, account_details, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (order_id, user_id, product_id_db, product_name, country_name, price, 'session', 'completed', session_string, datetime.now())
+        )
+        
+        await query.edit_message_text(
+            f"✅ **PURCHASE SUCCESSFUL!**\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📦 **Product:** {product_name}\n"
+            f"🌍 **Country:** {country_name}\n"
+            f"📅 **Year:** {year}\n"
+            f"💰 **Amount:** ₹{price:.2f}\n"
+            f"💳 **Balance Remaining:** ₹{new_balance:.2f}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"**📱 SESSION DETAILS:**\n"
+            f"`{session_string}`\n\n"
+            f"📌 Go to 'My Profile' → 'My Orders' to view order history.",
+            parse_mode='Markdown'
+        )
+        
+        # Send log to admin group
+        from config.settings import ADMIN_GROUP_ID
+        await context.bot.send_message(
+            ADMIN_GROUP_ID,
+            f"✅ **New Session Purchase!**\n\n"
+            f"👤 User: `{user_id}`\n"
+            f"📦 Product: {product_name}\n"
+            f"🌍 Country: {country_name}\n"
+            f"💰 Amount: ₹{price:.2f}\n"
+            f"🆔 Order ID: `{order_id}`",
+            parse_mode='Markdown'
+        )
