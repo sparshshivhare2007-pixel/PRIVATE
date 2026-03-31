@@ -11,7 +11,10 @@ from telethon.errors import (
     SessionPasswordNeededError,
     PhoneCodeInvalidError,
     PhoneCodeExpiredError,
+    PhoneNumberBannedError,
+    FloodWaitError,
 )
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +65,6 @@ async def close_telethon_client():
 async def login_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Routes login messages BEFORE menu handler.
-    Must be called in main.py message handler.
     """
     user_id = update.effective_user.id
     session = login_sessions.get(user_id)
@@ -129,8 +131,12 @@ async def handle_login_country(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.edit_message_text(
         f"🔐 *Login - {country_name}*\n\n"
-        "`+919876543210|price`\n\nExample:\n`+919876543210|70`\n\n"
-        "Send number now.",
+        "`+919876543210|price`\n\n"
+        f"✅ Tips:\n"
+        f"• Use REAL numbers (not VoIP)\n"
+        f"• Wait 2min for SMS\n"
+        f"• Format: `+91xxxxxxxxxx|40`\n\n"
+        "Send number now:",
         parse_mode="Markdown",
     )
 
@@ -147,28 +153,58 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if "|" not in text:
         await update.message.reply_text(
-            "❌ Format: `+919876543210|price`",
+            "❌ Format: `+919876543210|40`",
             parse_mode="Markdown",
         )
         return True
 
-    number, price_text = text.split("|", 1)  # 🔥 Use split with max 1
+    number, price_text = text.split("|", 1)
 
     try:
         price = float(price_text.strip())
     except Exception:
-        await update.message.reply_text("❌ Invalid price.")
+        await update.message.reply_text("❌ Invalid price (use numbers only).")
         return True
 
+    # Normalize number
+    number = number.strip().replace(" ", "").replace("-", "")
+
     try:
-        # 🔥 FIXED: Fresh client per login (handles DC migration)
-        client = await create_login_client(number.strip())
+        client = await create_login_client(number)
         
-        result = await client.send_code_request(number.strip())
+        # 🔥 RETRY LOGIC + FLOOD HANDLING
+        result = None
+        for attempt in range(3):
+            try:
+                result = await client.send_code_request(number)
+                logger.info(f"✅ OTP sent (attempt {attempt+1}): {number}")
+                break
+            except FloodWaitError as e:
+                wait_time = e.seconds
+                logger.warning(f"Flood wait {wait_time}s for {number}")
+                await update.message.reply_text(
+                    f"⏳ Rate limited. Waiting {wait_time}s...\nTry again in 1min."
+                )
+                await asyncio.sleep(min(wait_time + 5, 60))
+            except PhoneNumberBannedError:
+                await update.message.reply_text(
+                    f"❌ Number `{number}` is banned by Telegram.",
+                    parse_mode="Markdown"
+                )
+                await client.disconnect()
+                return True
+            except Exception as retry_e:
+                logger.warning(f"OTP attempt {attempt+1} failed: {retry_e}")
+                if attempt == 2:
+                    raise retry_e
+                await asyncio.sleep(3)
         
-        # Store client in session
+        if not result:
+            raise Exception("No valid result after retries")
+
+        # Store everything
         login_sessions[user_id].update({
-            "number": number.strip(),
+            "number": number,
             "price": price,
             "phone_code_hash": result.phone_code_hash,
             "step": "waiting_otp",
@@ -176,14 +212,25 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
         })
 
         await update.message.reply_text(
-            f"✅ OTP sent to `{number}`\n\nSend OTP now.",
+            f"✅ OTP sent to `{number}`\n\n"
+            f"📱 Check SMS/Telegram app\n"
+            f"⏰ Wait 2min if delayed\n\n"
+            f"Send 5-6 digit OTP:",
             parse_mode="Markdown",
         )
-        logger.info(f"✅ OTP sent to {number}")
 
     except Exception as e:
-        logger.error(f"OTP send failed for {number}: {e}")
-        await update.message.reply_text(f"❌ Failed sending OTP:\n`{str(e)[:100]}`")
+        logger.error(f"OTP send FAILED for {number}: {e}")
+        error_msg = str(e).lower()
+        
+        if "phone number" in error_msg and "invalid" in error_msg:
+            await update.message.reply_text(f"❌ Invalid number format: `{number}`\nUse `+91xxxxxxxxxx`", parse_mode="Markdown")
+        elif "banned" in error_msg:
+            await update.message.reply_text(f"❌ `{number}` is banned by Telegram", parse_mode="Markdown")
+        elif "flood" in error_msg:
+            await update.message.reply_text("❌ Rate limited. Wait 5min and try fresh number.")
+        else:
+            await update.message.reply_text(f"❌ Failed: `{str(e)[:80]}`\nTry fresh number.")
         
         # Cleanup
         if login_sessions.get(user_id, {}).get("client"):
@@ -206,32 +253,29 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     otp = update.message.text.strip()
 
-    if not otp.isdigit() or len(otp) < 5:
-        await update.message.reply_text("❌ Invalid OTP (5-6 digits).")
+    if not otp.isdigit() or len(otp) not in (5, 6):
+        await update.message.reply_text("❌ Send 5-6 digit OTP only.")
         return True
 
     client = session.get("client")
     if not client:
-        await update.message.reply_text("❌ Session expired. Use /login again.")
+        await update.message.reply_text("❌ Session expired. /login again.")
         login_sessions.pop(user_id, None)
         return True
 
     try:
-        # 🔥 FIXED: Use stored client (already followed DC redirects)
         await client.sign_in(
             phone=session["number"],
             code=otp,
             phone_code_hash=session["phone_code_hash"],
         )
 
-        # DB Logic
+        # === DB SAVE ===
         country_id = session["country_id"]
         number = session["number"]
         price = session["price"]
 
-        country = db.fetch_one(
-            "SELECT name FROM countries WHERE id=%s", (country_id,)
-        )
+        country = db.fetch_one("SELECT name FROM countries WHERE id=%s", (country_id,))
         country_name = country[0] if country else "Unknown"
 
         product = db.fetch_one(
@@ -253,7 +297,6 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     datetime.now(),
                 ),
             )
-
             product = db.fetch_one(
                 "SELECT id FROM products WHERE country_id=%s AND price=%s",
                 (country_id, price),
@@ -261,12 +304,8 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         product_id = product[0]
 
-        password = "".join(
-            random.choices(string.ascii_letters + string.digits, k=8)
-        )
-        two_fa = "".join(
-            random.choices(string.ascii_letters + string.digits, k=6)
-        )
+        password = "".join(random.choices(string.ascii_letters + string.digits, k=8))
+        two_fa = "".join(random.choices(string.ascii_letters + string.digits, k=6))
 
         db.execute(
             "INSERT INTO stock (product_id,number,password,otp,two_fa,is_sold,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
@@ -274,14 +313,14 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         await update.message.reply_text(
-            f"🎉 LOGIN SUCCESS\n\n"
+            f"🎉 *LOGIN SUCCESS*\n\n"
             f"📱 `{number}`\n"
             f"💰 ₹{price}\n\n"
-            f"Password: `{password}`\n"
-            f"2FA: `{two_fa}`",
+            f"🔑 Password: `{password}`\n"
+            f"🔐 2FA: `{two_fa}`",
             parse_mode="Markdown",
         )
-        logger.info(f"✅ Login success: {number}")
+        logger.info(f"✅ Login SUCCESS: {number}")
 
         # Cleanup
         await client.disconnect()
@@ -291,18 +330,18 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Wrong OTP. Try again.")
         
     except PhoneCodeExpiredError:
-        await update.message.reply_text("❌ OTP expired. Use /login again.")
+        await update.message.reply_text("❌ OTP expired. /login again.")
         await client.disconnect()
         login_sessions.pop(user_id, None)
         
     except SessionPasswordNeededError:
-        await update.message.reply_text("❌ Account has 2FA enabled.")
+        await update.message.reply_text("❌ 2FA enabled on account.")
         await client.disconnect()
         login_sessions.pop(user_id, None)
         
     except Exception as e:
-        logger.error(f"Login failed for {session.get('number', 'unknown')}: {e}")
-        await update.message.reply_text(f"❌ Login failed: `{str(e)[:100]}`")
+        logger.error(f"OTP failed for {session.get('number')}: {e}")
+        await update.message.reply_text(f"❌ Login error: `{str(e)[:80]}`")
         try:
             await client.disconnect()
         except:
@@ -320,11 +359,9 @@ async def cancel_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     session = login_sessions.get(user_id)
     
-    # Cleanup client
     if session and session.get("client"):
         try:
             await session["client"].disconnect()
-            logger.info(f"✅ Cancelled client for user {user_id}")
         except:
             pass
     
