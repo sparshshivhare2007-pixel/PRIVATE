@@ -80,6 +80,7 @@ from bot.admin.login import (
     cancel_login,
     login_router,
     close_telethon_client,
+    login_sessions,  # 🔥 ADDED FOR CLEANUP
 )
 
 # =================================================
@@ -95,15 +96,24 @@ logger = logging.getLogger(__name__)
 async def shutdown(app: Application):
     logger.info("🔄 Shutting down gracefully...")
 
+    # 🔥 FIXED: Cleanup all login sessions
+    for user_id, session in list(login_sessions.items()):
+        if session and session.get("client"):
+            try:
+                await session["client"].disconnect()
+                logger.info(f"✅ Cleanup client for user {user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup client {user_id}: {e}")
+    
+    # Cleanup global client
     try:
         await close_telethon_client()
-        logger.info("✅ Telethon disconnected")
+        logger.info("✅ Global Telethon disconnected")
     except Exception as e:
-        logger.error(f"Shutdown error: {e}")
+        logger.error(f"Global shutdown error: {e}")
 
     await app.stop()
     await app.shutdown()
-
     logger.info("✅ Bot stopped cleanly")
 
 
