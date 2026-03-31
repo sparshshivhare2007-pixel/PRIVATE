@@ -21,11 +21,11 @@ login_sessions = {}
 API_ID = 20138139
 API_HASH = "ff813495ed17a07723000a9751f4c3ee"
 
-# single telethon client
+# single telethon client (for other uses)
 _telethon_client = None
 
 
-# ================= TELETHON CLIENT =================
+# ================= TELETHON CLIENTS =================
 async def get_telethon_client():
     global _telethon_client
 
@@ -35,6 +35,14 @@ async def get_telethon_client():
         logger.info("✅ Telethon connected")
 
     return _telethon_client
+
+
+async def create_login_client(phone: str):
+    """Create fresh client for login to handle DC migration"""
+    client = TelegramClient(f"login_{phone}", API_ID, API_HASH)
+    await client.connect()
+    logger.info(f"✅ Login client created for {phone}")
+    return client
 
 
 async def close_telethon_client():
@@ -144,7 +152,7 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return True
 
-    number, price_text = text.split("|")
+    number, price_text = text.split("|", 1)  # 🔥 Use split with max 1
 
     try:
         price = float(price_text.strip())
@@ -153,28 +161,37 @@ async def process_login_number(update: Update, context: ContextTypes.DEFAULT_TYP
         return True
 
     try:
-        client = await get_telethon_client()
-
-        # 🔥 IMPORTANT FIX (OTP expiry solution)
+        # 🔥 FIXED: Fresh client per login (handles DC migration)
+        client = await create_login_client(number.strip())
+        
         result = await client.send_code_request(number.strip())
-
-        login_sessions[user_id].update(
-            {
-                "number": number.strip(),
-                "price": price,
-                "phone_code_hash": result.phone_code_hash,
-                "step": "waiting_otp",
-            }
-        )
+        
+        # Store client in session
+        login_sessions[user_id].update({
+            "number": number.strip(),
+            "price": price,
+            "phone_code_hash": result.phone_code_hash,
+            "step": "waiting_otp",
+            "client": client,
+        })
 
         await update.message.reply_text(
             f"✅ OTP sent to `{number}`\n\nSend OTP now.",
             parse_mode="Markdown",
         )
+        logger.info(f"✅ OTP sent to {number}")
 
     except Exception as e:
-        logger.error(e)
-        await update.message.reply_text(f"❌ Failed sending OTP:\n{e}")
+        logger.error(f"OTP send failed for {number}: {e}")
+        await update.message.reply_text(f"❌ Failed sending OTP:\n`{str(e)[:100]}`")
+        
+        # Cleanup
+        if login_sessions.get(user_id, {}).get("client"):
+            try:
+                await login_sessions[user_id]["client"].disconnect()
+            except:
+                pass
+        login_sessions.pop(user_id, None)
 
     return True
 
@@ -189,20 +206,25 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     otp = update.message.text.strip()
 
-    if not otp.isdigit():
-        await update.message.reply_text("❌ Invalid OTP.")
+    if not otp.isdigit() or len(otp) < 5:
+        await update.message.reply_text("❌ Invalid OTP (5-6 digits).")
+        return True
+
+    client = session.get("client")
+    if not client:
+        await update.message.reply_text("❌ Session expired. Use /login again.")
+        login_sessions.pop(user_id, None)
         return True
 
     try:
-        client = await get_telethon_client()
-
-        # 🔥 FIXED SIGN IN
+        # 🔥 FIXED: Use stored client (already followed DC redirects)
         await client.sign_in(
             phone=session["number"],
             code=otp,
             phone_code_hash=session["phone_code_hash"],
         )
 
+        # DB Logic
         country_id = session["country_id"]
         number = session["number"]
         price = session["price"]
@@ -210,7 +232,7 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         country = db.fetch_one(
             "SELECT name FROM countries WHERE id=%s", (country_id,)
         )
-        country_name = country[0]
+        country_name = country[0] if country else "Unknown"
 
         product = db.fetch_one(
             "SELECT id FROM products WHERE country_id=%s AND price=%s",
@@ -259,23 +281,32 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"2FA: `{two_fa}`",
             parse_mode="Markdown",
         )
+        logger.info(f"✅ Login success: {number}")
 
+        # Cleanup
+        await client.disconnect()
         login_sessions.pop(user_id, None)
 
     except PhoneCodeInvalidError:
-        await update.message.reply_text("❌ Wrong OTP.")
-
+        await update.message.reply_text("❌ Wrong OTP. Try again.")
+        
     except PhoneCodeExpiredError:
         await update.message.reply_text("❌ OTP expired. Use /login again.")
+        await client.disconnect()
         login_sessions.pop(user_id, None)
-
+        
     except SessionPasswordNeededError:
         await update.message.reply_text("❌ Account has 2FA enabled.")
+        await client.disconnect()
         login_sessions.pop(user_id, None)
-
+        
     except Exception as e:
-        logger.error(e)
-        await update.message.reply_text(f"❌ Login failed: {e}")
+        logger.error(f"Login failed for {session.get('number', 'unknown')}: {e}")
+        await update.message.reply_text(f"❌ Login failed: `{str(e)[:100]}`")
+        try:
+            await client.disconnect()
+        except:
+            pass
         login_sessions.pop(user_id, None)
 
     return True
@@ -285,6 +316,17 @@ async def process_login_otp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    login_sessions.pop(query.from_user.id, None)
+    
+    user_id = query.from_user.id
+    session = login_sessions.get(user_id)
+    
+    # Cleanup client
+    if session and session.get("client"):
+        try:
+            await session["client"].disconnect()
+            logger.info(f"✅ Cancelled client for user {user_id}")
+        except:
+            pass
+    
+    login_sessions.pop(user_id, None)
     await query.edit_message_text("❌ Login cancelled.")
